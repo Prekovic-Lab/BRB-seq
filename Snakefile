@@ -1,8 +1,32 @@
 configfile: "config/config.yaml"
 
 import pandas as pd
+from snakemake.exceptions import WorkflowError
 
+# Read the file
 _demux = pd.read_csv(config["demultiplex_tsv"], sep="\t")
+
+# ────────────────── VALIDATION CHECK ──────────────────────────────────────────
+# Find all rows where 'Sample_name' is duplicated
+_duplicates = _demux[_demux.duplicated(subset=["Sample_name"], keep=False)]
+
+if not _duplicates.empty:
+    # Get a list of the offending sample names
+    bad_samples = _duplicates["Sample_name"].unique().tolist()
+    
+    # Halt the pipeline instantly with a massive error message
+    raise WorkflowError(
+        f"\n\n"
+        f"🛑 PIPELINE HALTED: Duplicate Sample Names Detected!\n"
+        f"The demultiplex TSV contains duplicate sample names. This is not allowed.\n"
+        f"The following samples appear more than once: {bad_samples}\n"
+        f"Please fix the file before running the pipeline:\n"
+        f"File: {config['demultiplex_tsv']}\n"
+        f"-------------------------------------------------------------------\n"
+    )
+# ─────────────────────────────────────────────────────────────────────────────
+
+# If we pass the check, proceed as normal
 _demux["sample_id"] = (
     _demux["Sample_name"]
     .str.strip()
@@ -23,3 +47,4 @@ rule all:
         RD + "/counts/all_samples_counts.tsv",
         RD + "/qc/multiqc_report.html",
         RD + "/qc/BRB_seq_QC_Plots.pdf"
+        [RD + "/bams/split_by_sample"] if GENERATE_BAM else []
